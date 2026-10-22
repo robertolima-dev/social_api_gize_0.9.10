@@ -605,6 +605,26 @@
         ],
         "type": "object"
       },
+      "RegisterRequest": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "email",
+          "password"
+        ],
+        "type": "object"
+      },
       "Selfie": {
         "properties": {
           "author_id": {
@@ -2770,7 +2790,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateUser"
+                "$ref": "#/components/schemas/RegisterRequest"
               }
             }
           }

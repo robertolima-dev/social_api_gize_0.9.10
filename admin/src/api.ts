@@ -4,6 +4,20 @@ export function getToken(): string | null {
   return localStorage.getItem("gize_token");
 }
 
+/** A failed API call. `status` tells a refused request (401/403) apart from a broken one. */
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/** The HTTP status of a failed call, or undefined when the request never got an answer. */
+export function statusOf(error: unknown): number | undefined {
+  return error instanceof ApiError ? error.status : undefined;
+}
+
 async function req(path: string, opts: RequestInit = {}): Promise<any> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -14,7 +28,7 @@ async function req(path: string, opts: RequestInit = {}): Promise<any> {
   const res = await fetch(`${BASE}${path}`, { ...opts, headers });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(body || String(res.status));
+    throw new ApiError(res.status, body || String(res.status));
   }
   if (res.status === 204) return null;
   return res.json();

@@ -1,6 +1,6 @@
 # Social API
 
-API de rede social gerada com o [Gize](https://github.com/robertolima-dev/gize) 0.9.10. O stack é Axum, SQLx e PostgreSQL. O projeto tem autenticação JWT, especificação OpenAPI, endpoint WebSocket e um painel admin em React.
+API de rede social gerada com o [Gize](https://github.com/robertolima-dev/gize) 0.9.10 e atualizada para a 0.9.12 (veja [Atualizar o Gize](#atualizar-o-gize)). O stack é Axum, SQLx e PostgreSQL. O projeto tem autenticação JWT, especificação OpenAPI, endpoint WebSocket e um painel admin em React.
 
 Os recursos saíram dos geradores do Gize. Por cima deles foram escritas à mão as regras que uma rede social precisa e que o CRUD gerado não tem: cada linha tem dono, mensagens são privadas e likes e follows não se repetem. A seção [Personalizações](#personalizações) lista o que mudou.
 
@@ -39,8 +39,8 @@ hashtags
 ### 1. Instalar o Gize
 
 ```sh
-cargo install gize --version 0.9.10 --locked
-gize --version   # gize 0.9.10
+cargo install gize --version 0.9.12 --locked
+gize --version   # gize 0.9.12
 ```
 
 ### 2. Criar o projeto e os recursos
@@ -119,9 +119,9 @@ API=localhost:8080   # use a PORT do seu .env
 J='content-type: application/json'
 
 ANA=$(curl -s $API/users/register -H "$J" \
-  -d '{"name":"Ana","email":"ana@example.com","password":"longenough1","is_admin":false}' | jq -r .token)
+  -d '{"name":"Ana","email":"ana@example.com","password":"longenough1"}' | jq -r .token)
 BRUNO=$(curl -s $API/users/register -H "$J" \
-  -d '{"name":"Bruno","email":"bruno@example.com","password":"longenough1","is_admin":false}' | jq -r .token)
+  -d '{"name":"Bruno","email":"bruno@example.com","password":"longenough1"}' | jq -r .token)
 ANA_ID=$(curl -s $API/users/me -H "authorization: Bearer $ANA" | jq -r .id)
 BRUNO_ID=$(curl -s $API/users/me -H "authorization: Bearer $BRUNO" | jq -r .id)
 
@@ -153,6 +153,33 @@ curl -s "$API/posts?page=1&per_page=25"
 - `GET /openapi.json` devolve a especificação OpenAPI. Ela também está salva em `openapi.json` na raiz do projeto.
 - `GET /docs` abre a documentação interativa.
 - `GET /ws` é o endpoint WebSocket.
+
+## Atualizar o Gize
+
+O `gize sync` nunca sobrescreve um arquivo que difere do que o Gize gera, então numa atualização
+ele lista juntos os arquivos editados à mão e os que mudaram no template. O `--force` sobrescreveria
+os dois. O caminho seguro é trazer só os arquivos que o CHANGELOG da versão nomeia.
+
+Foi assim na passagem da 0.9.10 para a 0.9.12:
+
+```sh
+cargo install gize --version 0.9.12 --locked
+gize sync --dry-run    # 30 em drift: as 24 personalizações + 6 arquivos do template
+
+# Gera a versão nova numa cópia e traz só os 6 arquivos citados no CHANGELOG
+cp -R . /tmp/social-regen && (cd /tmp/social-regen && gize sync --force)
+for f in src/app/users/dto.rs src/app/users/handler.rs \
+         admin/src/api.ts admin/src/auth.tsx admin/src/App.tsx admin/src/Resource.tsx; do
+  cp /tmp/social-regen/$f $f
+done
+
+gize sync              # atualiza openapi.json e admin/src/resources.ts; sobram as 24 personalizações
+```
+
+- **0.9.11:** o `POST /users/register` aceita o body sem `is_admin`. Quem ainda manda o campo
+  continua funcionando; o valor é ignorado.
+- **0.9.12:** no admin, um 403 aparece como "You don't have permission to see …" em vez de lista
+  vazia, e um token expirado volta para o login.
 
 ## Manutenção
 
