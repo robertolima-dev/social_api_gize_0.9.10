@@ -1,0 +1,68 @@
+use sqlx::PgPool;
+
+use super::dto::{CreateUser, UpdateUser};
+use super::model::User;
+
+/// One page of rows, newest first. `id` breaks ties so the order is stable across pages.
+pub async fn list(pool: &PgPool, limit: i64, offset: i64) -> Result<Vec<User>, sqlx::Error> {
+    sqlx::query_as::<_, User>(
+        "SELECT * FROM users ORDER BY created_at DESC, id DESC LIMIT $1 OFFSET $2",
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn count(pool: &PgPool) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(pool)
+        .await
+}
+
+pub async fn find(pool: &PgPool, id: uuid::Uuid) -> Result<User, sqlx::Error> {
+    sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+}
+
+pub async fn create(pool: &PgPool, input: &CreateUser) -> Result<User, sqlx::Error> {
+    sqlx::query_as::<_, User>(
+        "INSERT INTO users (name, email, password, is_admin) VALUES ($1, $2, $3, $4) RETURNING *",
+    )
+    .bind(input.name.clone())
+    .bind(input.email.clone())
+    .bind(input.password.clone())
+    .bind(input.is_admin)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn update(
+    pool: &PgPool,
+    id: uuid::Uuid,
+    input: &UpdateUser,
+) -> Result<User, sqlx::Error> {
+    sqlx::query_as::<_, User>(
+        "UPDATE users SET name = $1, email = $2, password = $3, is_admin = $4, updated_at = now() WHERE id = $5 RETURNING *",
+    )
+        .bind(input.name.clone())
+        .bind(input.email.clone())
+        .bind(input.password.clone())
+        .bind(input.is_admin)
+        .bind(id)
+        .fetch_one(pool)
+        .await
+}
+
+pub async fn delete(pool: &PgPool, id: uuid::Uuid) -> Result<(), sqlx::Error> {
+    let result = sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    if result.rows_affected() == 0 {
+        return Err(sqlx::Error::RowNotFound);
+    }
+    Ok(())
+}

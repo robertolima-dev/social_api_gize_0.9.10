@@ -1,0 +1,109 @@
+[project]
+name = "social"
+
+[stack]
+framework = "axum"
+database = "postgres"
+orm = "sqlx"
+
+[features]
+authentication = true
+admin = true
+openapi = true
+websocket = true
+
+[[module]]
+name = "comments"
+fields = ["body:String"]
+
+[[module.belongs_to]]
+field = "post"
+target = "posts"
+
+[[module.belongs_to]]
+field = "author"
+target = "users"
+
+[[module]]
+name = "follows"
+
+[[module.belongs_to]]
+field = "follower"
+target = "users"
+
+[[module.belongs_to]]
+field = "followee"
+target = "users"
+
+[[module]]
+name = "hashtags"
+fields = ["name:String"]
+
+[[module]]
+name = "likes"
+
+[[module.belongs_to]]
+field = "post"
+target = "posts"
+
+[[module.belongs_to]]
+field = "user"
+target = "users"
+
+[[module]]
+name = "messages"
+fields = [
+    "body:String",
+    "read:bool",
+]
+
+[[module.belongs_to]]
+field = "sender"
+target = "users"
+
+[[module.belongs_to]]
+field = "recipient"
+target = "users"
+
+[[module]]
+name = "posts"
+fields = [
+    "body:String",
+    "published:bool",
+]
+
+[[module.belongs_to]]
+field = "author"
+target = "users"
+
+[[module]]
+name = "profiles"
+fields = [
+    "bio:String",
+    "avatar_url:String",
+]
+
+[[module.belongs_to]]
+field = "user"
+target = "users"
+
+[[module]]
+name = "selfies"
+model = "Selfie"
+fields = [
+    "image_url:String",
+    "caption:String",
+]
+
+[[module.belongs_to]]
+field = "author"
+target = "users"
+
+[[module]]
+name = "users"
+fields = [
+    "name:String",
+    "email:String",
+    "password:String",
+    "is_admin:bool",
+]

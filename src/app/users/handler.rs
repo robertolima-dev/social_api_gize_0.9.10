@@ -1,0 +1,148 @@
+use axum::Extension;
+use axum::Json;
+use axum::extract::rejection::QueryRejection;
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+
+use validator::Validate;
+
+use super::dto::{CreateUser, ListParams, LoginRequest, Page, TokenResponse, UpdateUser};
+use super::error::Error;
+use super::model::User;
+use super::service;
+use crate::auth::{Claims, hash_password_async, issue_token, verify_password_async};
+use crate::state::AppState;
+
+/// `GET /users?page=&per_page=` (admin only). Invalid paging parameters are a 422.
+pub async fn list(
+    State(state): State<AppState>,
+    params: Result<Query<ListParams>, QueryRejection>,
+) -> Result<Json<Page<User>>, Error> {
+    let Query(params) = params.map_err(|rejection| Error::Validation(rejection.body_text()))?;
+    let (page, per_page) = params.resolve().map_err(Error::Validation)?;
+    Ok(Json(service::list(&state.db, page, per_page).await?))
+}
+
+/// Self-service: return the authenticated caller's own record. The user is identified by the
+/// `sub` claim of their bearer token (set at register/login), so any valid token works — no
+/// admin flag required. `require_auth` puts the `Claims` in the request extensions.
+pub async fn me(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<User>, Error> {
+    let id = claims
+        .sub
+        .parse::<uuid::Uuid>()
+        .map_err(|_| Error::Unauthorized)?;
+    Ok(Json(service::find(&state.db, id).await?))
+}
+
+pub async fn show(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<Json<User>, Error> {
+    Ok(Json(service::find(&state.db, id).await?))
+}
+
+pub async fn create(
+    State(state): State<AppState>,
+    Json(input): Json<CreateUser>,
+) -> Result<(StatusCode, Json<User>), Error> {
+    input.validate()?;
+    let stored = CreateUser {
+        password: hash_password_async(input.password.clone())
+            .await
+            .map_err(|_| Error::Internal)?,
+        ..input
+    };
+    let user = service::create(&state.db, &stored).await?;
+    Ok((StatusCode::CREATED, Json(user)))
+}
+
+pub async fn update(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+    Json(input): Json<UpdateUser>,
+) -> Result<Json<User>, Error> {
+    input.validate()?;
+    let stored = UpdateUser {
+        password: hash_password_async(input.password.clone())
+            .await
+            .map_err(|_| Error::Internal)?,
+        ..input
+    };
+    Ok(Json(service::update(&state.db, id, &stored).await?))
+}
+
+pub async fn delete(
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<StatusCode, Error> {
+    service::delete(&state.db, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Public: register a new user (hashing the password) and return a session token.
+///
+/// `is_admin` is forced to `false` here — this is a public endpoint, so a client must not be
+/// able to grant itself admin. Admins are created through the guarded `POST /users` route.
+pub async fn register(
+    State(state): State<AppState>,
+    Json(input): Json<CreateUser>,
+) -> Result<(StatusCode, Json<TokenResponse>), Error> {
+    input.validate()?;
+    let stored = CreateUser {
+        password: hash_password_async(input.password.clone())
+            .await
+            .map_err(|_| Error::Internal)?,
+        is_admin: false,
+        ..input
+    };
+    let user = service::create(&state.db, &stored).await?;
+    // A freshly registered user is never an admin (see `is_admin = false` above).
+    let token = issue_token(&user.id, false).map_err(|_| Error::Internal)?;
+    Ok((StatusCode::CREATED, Json(TokenResponse { token })))
+}
+
+/// Public: exchange email + password for a session token.
+pub async fn login(
+    State(state): State<AppState>,
+    Json(input): Json<LoginRequest>,
+) -> Result<Json<TokenResponse>, Error> {
+    input.validate()?;
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
+        .bind(&input.email)
+        .fetch_optional(&state.db)
+        .await?;
+    // Verify a password whether or not the email exists, so the response time does not reveal
+    // which accounts are registered (user enumeration). An unknown email is checked against a
+    // throwaway hash so it costs the same as a real verification. Argon2 runs off the async
+    // runtime (see `crate::auth`), so a burst of logins does not stall other requests.
+    let authenticated = match &user {
+        Some(user) => verify_password_async(input.password, user.password.clone()).await,
+        None => {
+            let _ = verify_password_async(input.password, dummy_password_hash().await).await;
+            false
+        }
+    };
+    match (authenticated, user) {
+        (true, Some(user)) => {
+            let token = issue_token(&user.id, user.is_admin).map_err(|_| Error::Internal)?;
+            Ok(Json(TokenResponse { token }))
+        }
+        _ => Err(Error::Unauthorized),
+    }
+}
+
+/// A valid Argon2 hash of a throwaway password, computed once. Used to equalize login timing for
+/// unknown emails (see `login`), so an attacker cannot enumerate accounts by response time.
+async fn dummy_password_hash() -> String {
+    static HASH: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
+    HASH.get_or_init(|| async {
+        hash_password_async("gize-timing-equalizer".to_string())
+            .await
+            .unwrap_or_default()
+    })
+    .await
+    .clone()
+}

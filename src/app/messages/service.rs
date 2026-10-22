@@ -1,0 +1,61 @@
+use sqlx::PgPool;
+
+use super::dto::{CreateMessage, Page, UpdateMessage};
+use super::error::Error;
+use super::model::Message;
+use super::repository;
+
+/// One page of `messages` plus the total row count (ADR-022). `page` is 1-based.
+pub async fn list(pool: &PgPool, page: u32, per_page: u32) -> Result<Page<Message>, Error> {
+    let offset = i64::from(page - 1) * i64::from(per_page);
+    let items = repository::list(pool, i64::from(per_page), offset)
+        .await
+        .map_err(Error::from)?;
+    let total = repository::count(pool).await.map_err(Error::from)?;
+    Ok(Page {
+        items,
+        page,
+        per_page,
+        total: u64::try_from(total).unwrap_or_default(),
+    })
+}
+
+/// One page of the messages `user` sent or received.
+pub async fn list_for(
+    pool: &PgPool,
+    user: uuid::Uuid,
+    page: u32,
+    per_page: u32,
+) -> Result<Page<Message>, Error> {
+    let offset = i64::from(page - 1) * i64::from(per_page);
+    let items = repository::list_for(pool, user, i64::from(per_page), offset).await?;
+    let total = repository::count_for(pool, user).await?;
+    Ok(Page {
+        items,
+        page,
+        per_page,
+        total: u64::try_from(total).unwrap_or_default(),
+    })
+}
+
+pub async fn find(pool: &PgPool, id: uuid::Uuid) -> Result<Message, Error> {
+    repository::find(pool, id).await.map_err(Error::from)
+}
+
+pub async fn create(pool: &PgPool, input: &CreateMessage) -> Result<Message, Error> {
+    repository::create(pool, input).await.map_err(Error::from)
+}
+
+pub async fn update(
+    pool: &PgPool,
+    id: uuid::Uuid,
+    input: &UpdateMessage,
+) -> Result<Message, Error> {
+    repository::update(pool, id, input)
+        .await
+        .map_err(Error::from)
+}
+
+pub async fn delete(pool: &PgPool, id: uuid::Uuid) -> Result<(), Error> {
+    repository::delete(pool, id).await.map_err(Error::from)
+}
